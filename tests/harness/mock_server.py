@@ -28,7 +28,6 @@ from typing import Any
 
 import jwt as pyjwt
 
-
 CERTS_DIR = Path(__file__).resolve().parent / "certs"
 CERT_PATH = CERTS_DIR / "cert.pem"
 KEY_PATH = CERTS_DIR / "key.pem"
@@ -104,8 +103,25 @@ def _bodies() -> dict[str, Any]:
         "service_history": _load_real_or(
             "get_v1_servicehistory_vehicle_summary.json", "v1_service_history.json"
         ),
-        "climate_status": {"payload": None, "status": {"messages": []}},
-        "climate_settings": {"payload": None, "status": {"messages": []}},
+        "climate_status": {"payload": {"status": "stopped"}, "status": {"messages": []}},
+        "climate_settings": {
+            "payload": {
+                "duration": 20,
+                "temperature": {"value": 18.0, "unit": "C"},
+                "heatingOptions": {
+                    "frontDefroster": "off",
+                    "rearDefogger": "off",
+                    "steeringHeater": "off",
+                },
+                "seatOptions": {
+                    "driverSeat": "off",
+                    "passengerSeat": "off",
+                    "rearDriverSeat": "off",
+                    "rearPassengerSeat": "off",
+                },
+            },
+            "status": {"messages": []},
+        },
         "trips": _load_real_or("get_v1_trips.json", "v1_trips.json"),
     }
 
@@ -249,7 +265,8 @@ def _build_status_response(sim: VehicleSim) -> bytes:
     """Render the /status fixture body but with the simulator's occurrence_date.
 
     We deep-copy lazily by re-loading the JSON each call (cheap; happens only on
-    cache-fresh hits) so we don't mutate _BODIES_CACHE."""
+    cache-fresh hits) so we don't mutate _BODIES_CACHE.
+    """
     raw = _load_real_or(
         "get_v1_global_remote_status.json", "v1_global_remote_status.json"
     )
@@ -338,8 +355,8 @@ def _route(
         ("/v1/location", "location"),
         ("/v1/vehiclehealth/status", "health"),
         ("/v1/global/remote/electric/status", "electric"),
-        ("/v1/global/remote/climate-status", "climate_status"),
-        ("/v1/global/remote/climate-settings", "climate_settings"),
+        ("/v1/vehicle/climate-status", "climate_status"),
+        ("/v1/vehicle/climate-settings", "climate_settings"),
         ("/v3/telemetry", "telemetry"),
         ("/v2/notification/history", "notifications"),
         ("/v1/servicehistory", "service_history"),
@@ -355,7 +372,7 @@ def _route(
 class _Handler(BaseHTTPRequestHandler):
     """Minimal handler that silences default logging and dispatches on path."""
 
-    def log_message(self, fmt: str, *args: Any) -> None:  # noqa: A003
+    def log_message(self, fmt: str, *args: Any) -> None:
         # Silent by default; stdlib http.server is very noisy otherwise.
         pass
 
@@ -372,13 +389,13 @@ class _Handler(BaseHTTPRequestHandler):
     def _request_headers(self) -> dict[str, str]:
         return {k: v for k, v in self.headers.items()}
 
-    def do_GET(self) -> None:  # noqa: N802
+    def do_GET(self) -> None:
         status, headers, body = _route(
             "GET", self.path, headers=self._request_headers(), body_bytes=None
         )
         self._send(status, headers, body)
 
-    def do_POST(self) -> None:  # noqa: N802
+    def do_POST(self) -> None:
         length = int(self.headers.get("Content-Length", "0") or "0")
         body_bytes = self.rfile.read(length) if length > 0 else b""
         status, headers, body = _route(
@@ -437,5 +454,5 @@ class HarnessServer:
         self.start()
         return self
 
-    def __exit__(self, *exc_info: Any) -> None:
+    def __exit__(self, *exc_info: object) -> None:
         self.stop()
